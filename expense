@@ -1,0 +1,6 @@
+#! /usr/bin/env ruby
+
+require 'pg'
+
+puts 1
+puts 'Hello World'

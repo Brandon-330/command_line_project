@@ -2,5 +2,6 @@
 
 require 'pg'
 
-puts 1
 puts 'Hello World'
+
+# db = PG.connect(dbname: 'budget')

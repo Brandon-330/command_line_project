@@ -2,6 +2,61 @@
 
 require 'pg'
 
-puts 'Hello World'
+def list_all_expenses
+  result = DB.exec "SELECT * FROM expenses"
 
-# db = PG.connect(dbname: 'budget')
+  result.each do |tuple|
+    columns = [ tuple["id"].rjust(3),
+                tuple["created_on"].rjust(26),
+                tuple["amount"].rjust(12),
+                tuple["memo"] ]
+
+    puts columns.join(" | ")
+  end
+end
+
+def display_help
+  puts <<~HELP
+    An expense recording system
+
+    Commands:
+
+    add AMOUNT MEMO - record a new expense
+    clear - delete all expenses
+    list - list all expenses
+    delete NUMBER - remove expense with id NUMBER
+    search QUERY - list expenses with a matching memo field
+  HELP
+end
+
+def add_expense(amount_memo_arr)
+  if amount_memo_arr.size == 2 && valid_expense?(amount_memo_arr)
+    amount, memo = amount_memo_arr
+    DB.exec_params("INSERT INTO expenses (amount, memo) VALUES ($1 in $2)", [amount.to_f])
+  else
+    puts 'You must provide an amount and memo.'
+  end
+end
+
+def valid_expense?(amount_memo_arr)
+  amount, memo = amount_memo_arr
+  (amount.to_f.to_s == amount) && memo.is_a?(String)
+end
+
+command = ARGV.first
+DB = PG.connect(dbname: 'expenses', user: 'postgres', password: 'postgres')
+
+case command
+when 'list'
+  list_all_expenses
+when 'add'
+  add_expense(ARGV[1..])
+when 'clear'
+  'delete all expenses'
+when 'delete'
+  'delete a single id number'
+when 'search'
+  'list expenses with mathcing memo field'
+else
+  display_help
+end

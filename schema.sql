@@ -3,4 +3,4 @@ CREATE TABLE expenses (
   amount decimal(6, 2) NOT NULL,
   memo text NOT NULL,
   created_on timestamp DEFAULT NOW()
-)'
+);

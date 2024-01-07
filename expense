@@ -1,62 +1,153 @@
 #! /usr/bin/env ruby
 
 require 'pg'
+require 'io/console'
 
-def list_all_expenses
-  result = DB.exec "SELECT * FROM expenses"
+class CLI
+  attr_reader :ARGV, :expense_data
 
-  result.each do |tuple|
-    columns = [ tuple["id"].rjust(3),
-                tuple["created_on"].rjust(26),
-                tuple["amount"].rjust(12),
-                tuple["memo"] ]
+  def initialize
+    @application = ExpenseData.new
+  end
 
-    puts columns.join(" | ")
+  def run(argv)
+    command = argv.shift
+
+    case command
+    when 'list'
+      @application.list_expenses
+    when 'add'
+      @application.add_expense(argv)
+    when 'clear'
+      puts "This will remove all expenses. Are you sure? (y/n)"
+      answer = STDIN.getch
+
+      @application.delete_all_expenses if answer == 'y'
+    when 'delete'
+      @application.delete_expense(argv.shift)
+    when 'search'
+      @application.search(argv.shift)
+    else
+      display_help
+    end
+  end
+
+  def display_help
+    puts <<~HELP
+      An expense recording system
+  
+      Commands:
+  
+      add AMOUNT MEMO - record a new expense
+      clear - delete all expenses
+      list - list all expenses
+      delete NUMBER - remove expense with id NUMBER
+      search QUERY - list expenses with a matching memo field
+    HELP
   end
 end
 
-def display_help
-  puts <<~HELP
-    An expense recording system
+class ExpenseData
+  attr_accessor :db
 
-    Commands:
+  def initialize
+    @db = PG.connect(dbname: 'expenses', user: 'postgres', password: 'postgres')
+    setup_schema
+  end
 
-    add AMOUNT MEMO - record a new expense
-    clear - delete all expenses
-    list - list all expenses
-    delete NUMBER - remove expense with id NUMBER
-    search QUERY - list expenses with a matching memo field
-  HELP
-end
+  def setup_schema
+    def setup_schema
+      result = @connection.exec <<~SQL
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'expenses';
+      SQL
+  
+      if result[0]["count"] == "0"
+        @connection.exec <<~SQL
+          CREATE TABLE expenses (
+            id serial PRIMARY KEY,
+            amount numeric(6,2) NOT NULL CHECK (amount >= 0.01),
+            memo text NOT NULL,
+            created_on date NOT NULL DEFAULT NOW()
+          );
+        SQL
+      end
+    end
+  end
 
-def add_expense(amount_memo_arr)
-  if amount_memo_arr.size == 2 && valid_expense?(amount_memo_arr)
-    amount, memo = amount_memo_arr
-    DB.exec_params("INSERT INTO expenses (amount, memo) VALUES ($1 in $2)", [amount.to_f])
-  else
-    puts 'You must provide an amount and memo.'
+  def list_expenses
+    result = @db.exec "SELECT * FROM expenses"
+    
+    display_expenses(result)
+  end
+
+  def search(memo)
+    sql = "SELECT * FROM expenses WHERE memo ILIKE $1"
+    result = @db.exec_params(sql, ["%#{memo}%"])
+
+    display_expenses(result)
+  end
+
+  def add_expense(amount_memo_arr)
+    if amount_memo_arr.size == 2
+      amount, memo = amount_memo_arr
+      sql = "INSERT INTO expenses (amount, memo) VALUES ($1, $2)"
+      @db.exec_params(sql , [amount.to_f, memo])
+    else
+      puts 'You must provide an amount and memo.'
+    end
+  end
+
+  def delete_expense(id)
+    sql = "SELECT * FROM expenses WHERE id = $1"
+    result = @db.exec_params(sql, [id])
+
+    if result.ntuples == 1
+      sql = "DELETE FROM expenses WHERE id = $1"
+      @db.exec_params(sql, [id])
+      
+      puts "The following expense has been deleted:"
+      display_expenses(result)
+    else
+      puts "There is no expense with the id #{id}"
+    end
+  end
+
+  def delete_all_expenses
+    @db.exec "DELETE FROM expenses"
+    puts "All expenses has been cleared"
+  end
+
+  private
+
+  def display_expenses(result)
+    display_count(result)
+    
+    if result.ntuples > 0
+      total = 0.00
+      result.each do |tuple|
+        columns = [ tuple["id"].rjust(3),
+                    tuple["created_on"].rjust(10),
+                    tuple["amount"].rjust(6),
+                    tuple["memo"] ]
+        
+        total += tuple['amount'].to_f
+    
+        puts columns.join(" | ")
+      end
+
+      puts '-' * (40)
+      puts 'Total' + ' ' * (16) + "#{total}"
+    end
+  end
+
+  def display_count(result)
+    if result.ntuples > 0
+      puts "There are #{result.values.size} expenses."
+    else
+      puts 'There are no expenses.'
+    end
   end
 end
 
-def valid_expense?(amount_memo_arr)
-  amount, memo = amount_memo_arr
-  (amount.to_f.to_s == amount) && memo.is_a?(String)
-end
-
-command = ARGV.first
-DB = PG.connect(dbname: 'expenses', user: 'postgres', password: 'postgres')
-
-case command
-when 'list'
-  list_all_expenses
-when 'add'
-  add_expense(ARGV[1..])
-when 'clear'
-  'delete all expenses'
-when 'delete'
-  'delete a single id number'
-when 'search'
-  'list expenses with mathcing memo field'
-else
-  display_help
-end
+CLI.new.run(ARGV)
